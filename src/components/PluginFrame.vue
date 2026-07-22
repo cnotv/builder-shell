@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { LoadedPlugin } from '../services/loaded'
+import { pluginStore } from '../services/pluginStore'
 
 const props = defineProps<{ plugin: LoadedPlugin }>()
 defineEmits<{ unload: []; reload: [] }>()
 
+const frame = ref<HTMLIFrameElement | null>(null)
 const height = ref(420)
 const collapsed = ref(false)
 
@@ -14,20 +16,30 @@ const src = computed(() => {
   return `${props.plugin.url}${sep}r=${props.plugin.reloadKey}`
 })
 
-/** Only trust messages coming from the plugin's own Pages origin. */
-function expectedOrigin(): string | null {
-  try {
-    return new URL(props.plugin.url).origin
-  } catch {
-    return null
-  }
+function reply(msg: unknown) {
+  frame.value?.contentWindow?.postMessage(msg, '*')
 }
 
+/**
+ * Handle messages from THIS plugin's iframe. Sandboxed frames have an opaque
+ * origin ("null"), so we identify our frame by event.source, not origin.
+ */
 function onMessage(event: MessageEvent) {
-  if (event.origin !== expectedOrigin()) return
-  const data = event.data as { type?: string; height?: number }
-  if (data?.type === 'resize' && typeof data.height === 'number') {
-    height.value = Math.min(Math.max(data.height, 200), 2000)
+  if (!frame.value || event.source !== frame.value.contentWindow) return
+  const d = event.data as { type?: string; height?: number; key?: string; value?: string }
+  switch (d?.type) {
+    case 'resize':
+      if (typeof d.height === 'number') height.value = Math.min(Math.max(d.height, 200), 2000)
+      break
+    case 'bs-storage-load':
+      reply({ type: 'bs-storage-data', data: pluginStore.getAll(props.plugin.repo) })
+      break
+    case 'bs-storage-set':
+      if (typeof d.key === 'string') pluginStore.setKey(props.plugin.repo, d.key, String(d.value ?? ''))
+      break
+    case 'bs-storage-remove':
+      if (typeof d.key === 'string') pluginStore.removeKey(props.plugin.repo, d.key)
+      break
   }
 }
 
@@ -48,6 +60,7 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
     </div>
     <iframe
       v-show="!collapsed"
+      ref="frame"
       :src="src"
       :style="{ height: height + 'px' }"
       sandbox="allow-scripts"
