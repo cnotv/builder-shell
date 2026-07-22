@@ -14,7 +14,6 @@ import LoadedPlugins from './components/LoadedPlugins.vue'
 const plugins = ref<Plugin[]>([])
 const loading = ref(false)
 const editing = ref<Plugin | null>(null)
-const showChat = ref(true)
 
 async function refresh() {
   if (!auth.state.login) {
@@ -32,7 +31,6 @@ async function refresh() {
 
 function edit(p: Plugin) {
   editing.value = p
-  showChat.value = true
 }
 
 function load(p: Plugin) {
@@ -84,13 +82,9 @@ onMounted(async () => {
 
       <!-- Right column: Plugin creator + Loaded plugins -->
       <section class="work">
-        <div v-if="showChat" class="panel">
-          <div class="panel-bar">
-            <button class="quit" @click="showChat = false">Quit chat ✕</button>
-          </div>
+        <div class="panel">
           <ChatPanel :editing="editing" @published="onPublished" @cancel-edit="editing = null" />
         </div>
-        <button v-else class="reopen" @click="showChat = true">+ New plugin</button>
 
         <div class="panel grow">
           <h3 class="panel-title">Loaded plugins</h3>
@@ -150,28 +144,6 @@ main {
 }
 .panel-title {
   margin: 0 0 0.6rem;
-}
-.panel-bar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 0.25rem;
-}
-.quit {
-  border: 1px solid #ccc;
-  background: #fff;
-  border-radius: 6px;
-  padding: 0.2rem 0.5rem;
-  cursor: pointer;
-  font-size: 0.8rem;
-}
-.reopen {
-  border: 1px dashed #bbb;
-  background: #fafafa;
-  border-radius: 12px;
-  padding: 0.7rem;
-  cursor: pointer;
-  font-weight: 600;
-  color: #444;
 }
 hr {
   border: 0;
