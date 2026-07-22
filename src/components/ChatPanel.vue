@@ -8,7 +8,7 @@ import { buildUpdatePrompt } from '../services/pluginGen'
 import { slugify, type Plugin, type PluginManifest } from '../types/plugin'
 
 const props = defineProps<{ editing: Plugin | null }>()
-const emit = defineEmits<{ published: []; cancelEdit: [] }>()
+const emit = defineEmits<{ published: [plugin: Plugin]; cancelEdit: [] }>()
 
 const github = new GitHubClient(() => auth.state.githubPat)
 
@@ -76,16 +76,25 @@ async function build() {
         buildUpdatePrompt(manifest, current.text, prompt.value),
         selected.modelId,
       )
-      lastUrl.value = await updatePlugin(github, login, target.repo, target.entry, updated, onStage)
+      const url = await updatePlugin(github, login, target.repo, target.entry, updated, onStage)
+      lastUrl.value = url
       prompt.value = ''
-      emit('published')
+      emit('published', {
+        name: updated.manifest.name,
+        description: updated.manifest.description,
+        emoji: updated.manifest.emoji,
+        entry: target.entry,
+        repo: target.repo,
+        url,
+      })
       emit('cancelEdit')
     } else {
       const plugin = await selected.client.generatePlugin(prompt.value, selected.modelId)
       const repo = slugify(plugin.manifest.name) || `plugin-${Date.now()}`
-      lastUrl.value = await publishPlugin(github, login, repo, plugin, onStage)
+      const url = await publishPlugin(github, login, repo, plugin, onStage)
+      lastUrl.value = url
       prompt.value = ''
-      emit('published')
+      emit('published', { ...plugin.manifest, repo, url })
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)

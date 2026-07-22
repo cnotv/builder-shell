@@ -1,36 +1,34 @@
 <script setup lang="ts">
 import type { Plugin } from '../types/plugin'
+import { loaded } from '../services/loaded'
 
-defineProps<{ plugins: Plugin[]; loading: boolean; selected: string | null }>()
-defineEmits<{ select: [plugin: Plugin]; edit: [plugin: Plugin]; refresh: [] }>()
+defineProps<{ plugins: Plugin[]; loading: boolean }>()
+defineEmits<{ load: [plugin: Plugin]; edit: [plugin: Plugin]; refresh: [] }>()
 </script>
 
 <template>
   <section class="gallery">
     <div class="head">
-      <h2>Plugins</h2>
+      <h2>Plugin loader</h2>
       <button class="refresh" :disabled="loading" @click="$emit('refresh')">
         {{ loading ? '…' : '↻' }}
       </button>
     </div>
 
     <p v-if="!loading && plugins.length === 0" class="empty">
-      No plugins yet. Build one on the left.
+      No plugins found. Build one, or connect GitHub.
     </p>
 
     <ul>
-      <li
-        v-for="p in plugins"
-        :key="p.repo"
-        :class="{ active: p.repo === selected }"
-        @click="$emit('select', p)"
-      >
+      <li v-for="p in plugins" :key="p.repo">
         <span class="emoji">{{ p.emoji }}</span>
         <span class="meta">
           <b>{{ p.name }}</b>
           <small>{{ p.description }}</small>
         </span>
-        <button class="edit" @click.stop="$emit('edit', p)">Edit</button>
+        <button v-if="loaded.isLoaded(p.repo)" class="ghost" disabled>Loaded</button>
+        <button v-else @click="$emit('load', p)">Load</button>
+        <button class="edit" @click="$emit('edit', p)">Edit</button>
       </li>
     </ul>
   </section>
@@ -72,11 +70,6 @@ li {
   padding: 0.6rem;
   border: 1px solid #e2e2e2;
   border-radius: 10px;
-  cursor: pointer;
-}
-li.active {
-  border-color: #1f6feb;
-  background: #eef4ff;
 }
 .emoji {
   font-size: 1.4rem;
@@ -87,15 +80,28 @@ li.active {
   flex: 1;
   min-width: 0;
 }
-.edit {
-  border: 1px solid #ccc;
-  background: #fff;
-  border-radius: 6px;
-  padding: 0.2rem 0.5rem;
-  cursor: pointer;
-  font-size: 0.8rem;
-}
 small {
   color: #666;
+}
+button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  background: #1f6feb;
+  color: #fff;
+  font-weight: 600;
+}
+button.edit {
+  background: #fff;
+  color: #333;
+  border: 1px solid #ccc;
+  font-weight: 400;
+}
+button.ghost {
+  background: #eef4ff;
+  color: #1f6feb;
+  cursor: default;
 }
 </style>
