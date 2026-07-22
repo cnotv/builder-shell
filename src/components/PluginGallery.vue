@@ -1,9 +1,16 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { Plugin } from '../types/plugin'
 import { loaded } from '../services/loaded'
 
 defineProps<{ plugins: Plugin[]; loading: boolean }>()
 defineEmits<{ load: [plugin: Plugin]; edit: [plugin: Plugin]; refresh: [] }>()
+
+const selected = ref<string | null>(null)
+
+function toggle(repo: string) {
+  selected.value = selected.value === repo ? null : repo
+}
 </script>
 
 <template>
@@ -20,15 +27,20 @@ defineEmits<{ load: [plugin: Plugin]; edit: [plugin: Plugin]; refresh: [] }>()
     </p>
 
     <ul>
-      <li v-for="p in plugins" :key="p.repo">
+      <li
+        v-for="p in plugins"
+        :key="p.repo"
+        :class="{ selected: selected === p.repo }"
+        @click="toggle(p.repo)"
+      >
         <span class="emoji">{{ p.emoji }}</span>
         <span class="meta">
           <b>{{ p.name }}</b>
-          <small>{{ p.description }}</small>
+          <small v-if="selected === p.repo">{{ p.description }}</small>
         </span>
-        <button v-if="loaded.isLoaded(p.repo)" class="ghost" disabled>Loaded</button>
-        <button v-else @click="$emit('load', p)">Load</button>
-        <button class="edit" @click="$emit('edit', p)">Edit</button>
+        <button v-if="loaded.isLoaded(p.repo)" class="ghost" disabled @click.stop>Loaded</button>
+        <button v-else @click.stop="$emit('load', p)">Load</button>
+        <button class="edit" @click.stop="$emit('edit', p)">Edit</button>
       </li>
     </ul>
   </section>
@@ -70,6 +82,11 @@ li {
   padding: 0.6rem;
   border: 1px solid #e2e2e2;
   border-radius: 10px;
+  cursor: pointer;
+}
+li.selected {
+  border-color: #1f6feb;
+  background: #eef4ff;
 }
 .emoji {
   font-size: 1.4rem;
