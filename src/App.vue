@@ -13,6 +13,7 @@ import PluginHost from './components/PluginHost.vue'
 const plugins = ref<Plugin[]>([])
 const loading = ref(false)
 const selected = ref<Plugin | null>(null)
+const editing = ref<Plugin | null>(null)
 
 async function refresh() {
   if (!auth.state.login) {
@@ -31,6 +32,15 @@ async function refresh() {
 
 function select(p: Plugin) {
   selected.value = p
+}
+
+function edit(p: Plugin) {
+  editing.value = p
+}
+
+async function onPublished() {
+  editing.value = null
+  await refresh()
 }
 
 onMounted(async () => {
@@ -57,13 +67,18 @@ onMounted(async () => {
         <hr />
         <GitHubConnect @connected="refresh" />
         <hr />
-        <ChatPanel @published="refresh" />
+        <ChatPanel
+          :editing="editing"
+          @published="onPublished"
+          @cancel-edit="editing = null"
+        />
         <hr />
         <PluginGallery
           :plugins="plugins"
           :loading="loading"
           :selected="selected?.repo ?? null"
           @select="select"
+          @edit="edit"
           @refresh="refresh"
         />
       </aside>

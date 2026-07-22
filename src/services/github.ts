@@ -1,5 +1,7 @@
 const API = 'https://api.github.com'
-export const PLUGIN_TOPIC = 'claude-plugin'
+export const PLUGIN_TOPIC = 'cnotv-builder-plugin'
+/** Topics from earlier versions, still discovered for backward compatibility. */
+export const LEGACY_TOPICS = ['claude-plugin']
 
 export interface GitHubUser {
   login: string
@@ -87,24 +89,39 @@ export class GitHubClient {
     })
   }
 
+  /** Create or (with `sha`) update a file via the Contents API. */
   async putFile(
     owner: string,
     repo: string,
     path: string,
     content: string,
     message: string,
+    sha?: string,
   ): Promise<void> {
     await this.request(`/repos/${owner}/${repo}/contents/${path}`, {
       method: 'PUT',
-      body: JSON.stringify({ message, content: toBase64(content) }),
+      body: JSON.stringify({
+        message,
+        content: toBase64(content),
+        ...(sha ? { sha } : {}),
+      }),
     })
   }
 
-  async getFile(owner: string, repo: string, path: string): Promise<string> {
-    const res = await this.request<{ content: string }>(
+  /** Read a file plus its blob `sha` (needed to update it later). */
+  async getContent(
+    owner: string,
+    repo: string,
+    path: string,
+  ): Promise<{ text: string; sha: string }> {
+    const res = await this.request<{ content: string; sha: string }>(
       `/repos/${owner}/${repo}/contents/${path}`,
     )
-    return fromBase64(res.content)
+    return { text: fromBase64(res.content), sha: res.sha }
+  }
+
+  getFile(owner: string, repo: string, path: string): Promise<string> {
+    return this.getContent(owner, repo, path).then((r) => r.text)
   }
 
   addTopics(owner: string, repo: string, topics: string[]): Promise<void> {
@@ -125,11 +142,18 @@ export class GitHubClient {
     return this.request<PagesInfo>(`/repos/${owner}/${repo}/pages`)
   }
 
-  async searchPluginRepos(login: string): Promise<string[]> {
-    const q = encodeURIComponent(`user:${login} topic:${PLUGIN_TOPIC}`)
+  private async searchByTopic(login: string, topic: string): Promise<string[]> {
+    const q = encodeURIComponent(`user:${login} topic:${topic}`)
     const res = await this.request<{ items: { name: string }[] }>(
       `/search/repositories?q=${q}`,
     )
     return res.items.map((i) => i.name)
+  }
+
+  /** Discover plugin repos under the current + legacy topics, de-duplicated. */
+  async searchPluginRepos(login: string): Promise<string[]> {
+    const topics = [PLUGIN_TOPIC, ...LEGACY_TOPICS]
+    const lists = await Promise.all(topics.map((t) => this.searchByTopic(login, t)))
+    return [...new Set(lists.flat())]
   }
 }

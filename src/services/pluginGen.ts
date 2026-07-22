@@ -1,4 +1,4 @@
-import type { GeneratedPlugin } from '../types/plugin'
+import type { GeneratedPlugin, PluginManifest } from '../types/plugin'
 import { parseManifest } from '../types/plugin'
 import { extractJson } from './json'
 
@@ -14,7 +14,41 @@ export const PLUGIN_SYSTEM = [
   'It must make NO external network requests and load NO external resources.',
   'It runs inside a sandboxed iframe (sandbox="allow-scripts", opaque origin):',
   'do not use localStorage, cookies, or top-level navigation.',
+  '',
+  'P2P Hub integration — ONLY when the plugin needs presence, shared state, or',
+  'chat with other plugins. Talk to the parent "P2P Hub" via',
+  'window.parent.postMessage(msg, "*"):',
+  '  - {type:"p2p-subscribe"} to join the hub',
+  '  - {type:"p2p-send", room, payload} to broadcast to a room',
+  '  - {type:"p2p-set-data", data} to publish your shared state',
+  'Listen with window.addEventListener("message", e => ...) for e.data.type:',
+  '  - "p2p-users": the current peer list',
+  '  - "p2p-message": an incoming {room, payload}',
+  '  - "p2p-self": your own identity',
+  'Ignore messages whose type you do not recognize.',
 ].join('\n')
+
+/** Compose an update request that gives the model the current plugin as context. */
+export function buildUpdatePrompt(
+  current: PluginManifest,
+  currentHtml: string,
+  changes: string,
+): string {
+  return [
+    'Here is an existing plugin. Apply the requested changes and return the FULL',
+    'updated plugin as a JSON object with the same schema (name, description,',
+    'emoji, html). Preserve existing behaviour unless a change requires otherwise.',
+    '',
+    'Current plugin.json:',
+    JSON.stringify(current),
+    '',
+    'Current index.html:',
+    currentHtml,
+    '',
+    'Requested changes:',
+    changes,
+  ].join('\n')
+}
 
 /** Parse a model's raw text into a validated plugin, or throw if unusable. */
 export function parseGenerated(text: string): GeneratedPlugin {

@@ -3,10 +3,12 @@ import { computed, ref } from 'vue'
 import { auth } from '../services/auth'
 import { ai, type Agent } from '../services/ai'
 import { GitHubClient } from '../services/github'
-import { publishPlugin, type PublishStage } from '../services/publisher'
-import { slugify } from '../types/plugin'
+import { publishPlugin, updatePlugin, type PublishStage } from '../services/publisher'
+import { buildUpdatePrompt } from '../services/pluginGen'
+import { slugify, type Plugin, type PluginManifest } from '../types/plugin'
 
-const emit = defineEmits<{ published: [] }>()
+const props = defineProps<{ editing: Plugin | null }>()
+const emit = defineEmits<{ published: []; cancelEdit: [] }>()
 
 const github = new GitHubClient(() => auth.state.githubPat)
 
@@ -48,22 +50,43 @@ async function build() {
     error.value = 'Connect an AI provider first.'
     return
   }
-  // GitHub is only required to publish — request it at build time.
+  // GitHub is only required to publish/update — request it at build time.
   const login = auth.state.login
   if (!login) {
     error.value = 'Connect GitHub in the sidebar to publish your plugin.'
     return
   }
+
   busy.value = true
   error.value = null
   lastUrl.value = null
+  const onStage = (s: PublishStage) => (stage.value = s)
+
   try {
-    const plugin = await selected.client.generatePlugin(prompt.value, selected.modelId)
-    const repo = slugify(plugin.manifest.name) || `plugin-${Date.now()}`
-    const url = await publishPlugin(github, login, repo, plugin, (s) => (stage.value = s))
-    lastUrl.value = url
-    prompt.value = ''
-    emit('published')
+    if (props.editing) {
+      const target = props.editing
+      const current = await github.getContent(login, target.repo, target.entry)
+      const manifest: PluginManifest = {
+        name: target.name,
+        description: target.description,
+        emoji: target.emoji,
+        entry: target.entry,
+      }
+      const updated = await selected.client.generatePlugin(
+        buildUpdatePrompt(manifest, current.text, prompt.value),
+        selected.modelId,
+      )
+      lastUrl.value = await updatePlugin(github, login, target.repo, target.entry, updated, onStage)
+      prompt.value = ''
+      emit('published')
+      emit('cancelEdit')
+    } else {
+      const plugin = await selected.client.generatePlugin(prompt.value, selected.modelId)
+      const repo = slugify(plugin.manifest.name) || `plugin-${Date.now()}`
+      lastUrl.value = await publishPlugin(github, login, repo, plugin, onStage)
+      prompt.value = ''
+      emit('published')
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   } finally {
@@ -75,12 +98,18 @@ async function build() {
 
 <template>
   <section class="chat">
-    <h2>Describe a plugin</h2>
+    <h2 v-if="editing">Update: {{ editing.name }}</h2>
+    <h2 v-else>Describe a plugin</h2>
+
     <textarea
       v-model="prompt"
       :disabled="busy"
       rows="4"
-      placeholder="e.g. A pomodoro timer with start/stop and a tomato that fills up"
+      :placeholder="
+        editing
+          ? 'Describe the changes to apply…'
+          : 'e.g. A pomodoro timer with start/stop and a tomato that fills up'
+      "
     />
     <div class="row">
       <select
@@ -98,9 +127,13 @@ async function build() {
         :disabled="busy || prompt.trim() === '' || !ai.hasAgents.value"
         @click="build"
       >
-        {{ busy ? 'Building…' : 'Build & publish' }}
+        {{ busy ? (editing ? 'Updating…' : 'Building…') : editing ? 'Update plugin' : 'Build & publish' }}
       </button>
     </div>
+
+    <button v-if="editing && !busy" class="link" @click="$emit('cancelEdit')">
+      Cancel edit
+    </button>
 
     <p v-if="!ai.hasAgents.value" class="hint">
       Connect an AI provider above to enable building.
@@ -149,6 +182,15 @@ button {
 button:disabled {
   opacity: 0.6;
   cursor: default;
+}
+button.link {
+  flex: none;
+  align-self: flex-start;
+  background: none;
+  color: #666;
+  padding: 0;
+  font-weight: 400;
+  text-decoration: underline;
 }
 .hint {
   color: #888;

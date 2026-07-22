@@ -51,6 +51,45 @@ export async function publishPlugin(
   return `https://${login}.github.io/${repo}/${plugin.manifest.entry}`
 }
 
+/**
+ * Commit updated files to an existing plugin repo (in place). Requires each
+ * file's current `sha`, which the Contents API needs to overwrite it.
+ */
+export async function updatePlugin(
+  gh: GitHubClient,
+  login: string,
+  repo: string,
+  entry: string,
+  plugin: GeneratedPlugin,
+  onStage: (stage: PublishStage) => void,
+): Promise<string> {
+  onStage('committing')
+  const current = await gh.getContent(login, repo, entry)
+  await gh.putFile(login, repo, entry, plugin.html, 'Update plugin', current.sha)
+
+  let manifestSha: string | undefined
+  try {
+    manifestSha = (await gh.getContent(login, repo, 'plugin.json')).sha
+  } catch {
+    // Older plugins may predate the manifest; create it.
+  }
+  const manifest = { ...plugin.manifest, entry } // keep the existing entry path
+  await gh.putFile(
+    login,
+    repo,
+    'plugin.json',
+    JSON.stringify(manifest, null, 2),
+    'Update manifest',
+    manifestSha,
+  )
+
+  onStage('tagging')
+  await gh.addTopics(login, repo, [PLUGIN_TOPIC]) // migrate to the current topic
+
+  onStage('done')
+  return `https://${login}.github.io/${repo}/${entry}`
+}
+
 async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
   let lastErr: unknown
   for (let i = 0; i < attempts; i++) {

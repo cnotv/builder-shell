@@ -2,7 +2,7 @@
 import type { Plugin } from '../types/plugin'
 
 defineProps<{ plugins: Plugin[]; loading: boolean; selected: string | null }>()
-defineEmits<{ select: [plugin: Plugin]; refresh: [] }>()
+defineEmits<{ select: [plugin: Plugin]; edit: [plugin: Plugin]; refresh: [] }>()
 </script>
 
 <template>
@@ -30,6 +30,7 @@ defineEmits<{ select: [plugin: Plugin]; refresh: [] }>()
           <b>{{ p.name }}</b>
           <small>{{ p.description }}</small>
         </span>
+        <button class="edit" @click.stop="$emit('edit', p)">Edit</button>
       </li>
     </ul>
   </section>
@@ -83,6 +84,16 @@ li.active {
 .meta {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.edit {
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.8rem;
 }
 small {
   color: #666;
