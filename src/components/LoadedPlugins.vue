@@ -12,6 +12,7 @@ import PluginFrame from './PluginFrame.vue'
       v-for="p in loaded.state.plugins"
       :key="p.repo"
       :plugin="p"
+      @reload="loaded.reload(p.repo)"
       @unload="loaded.unload(p.repo)"
     />
   </section>

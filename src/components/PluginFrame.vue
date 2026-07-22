@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
-import type { Plugin } from '../types/plugin'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import type { LoadedPlugin } from '../services/loaded'
 
-const props = defineProps<{ plugin: Plugin }>()
-defineEmits<{ unload: [] }>()
+const props = defineProps<{ plugin: LoadedPlugin }>()
+defineEmits<{ unload: []; reload: [] }>()
 
 const height = ref(420)
+
+/** Cache-busted src: a new reloadKey forces the iframe to re-fetch. */
+const src = computed(() => {
+  const sep = props.plugin.url.includes('?') ? '&' : '?'
+  return `${props.plugin.url}${sep}r=${props.plugin.reloadKey}`
+})
 
 /** Only trust messages coming from the plugin's own Pages origin. */
 function expectedOrigin(): string | null {
@@ -33,10 +39,11 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
     <div class="bar">
       <span class="title">{{ plugin.emoji }} {{ plugin.name }}</span>
       <a class="open" :href="plugin.url" target="_blank" rel="noreferrer" title="Open in new tab">↗</a>
-      <button class="unload" @click="$emit('unload')">Unload</button>
+      <button class="act" @click="$emit('reload')">Reload</button>
+      <button class="act" @click="$emit('unload')">Unload</button>
     </div>
     <iframe
-      :src="plugin.url"
+      :src="src"
       :style="{ height: height + 'px' }"
       sandbox="allow-scripts"
       title="plugin"
@@ -71,7 +78,7 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
   text-decoration: none;
   color: #666;
 }
-.unload {
+.act {
   border: 1px solid #ccc;
   background: #fff;
   border-radius: 6px;
