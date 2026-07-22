@@ -6,6 +6,7 @@ const props = defineProps<{ plugin: LoadedPlugin }>()
 defineEmits<{ unload: []; reload: [] }>()
 
 const height = ref(420)
+const collapsed = ref(false)
 
 /** Cache-busted src: a new reloadKey forces the iframe to re-fetch. */
 const src = computed(() => {
@@ -37,12 +38,16 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
 <template>
   <div class="frame">
     <div class="bar">
+      <button class="icon" :title="collapsed ? 'Expand' : 'Collapse'" @click="collapsed = !collapsed">
+        {{ collapsed ? '▸' : '▾' }}
+      </button>
       <span class="title">{{ plugin.emoji }} {{ plugin.name }}</span>
       <a class="open" :href="plugin.url" target="_blank" rel="noreferrer" title="Open in new tab">↗</a>
       <button class="act" @click="$emit('reload')">Reload</button>
       <button class="act" @click="$emit('unload')">Unload</button>
     </div>
     <iframe
+      v-show="!collapsed"
       :src="src"
       :style="{ height: height + 'px' }"
       sandbox="allow-scripts"
@@ -77,6 +82,14 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
 .open {
   text-decoration: none;
   color: #666;
+}
+.icon {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #555;
+  padding: 0 0.2rem;
 }
 .act {
   border: 1px solid #ccc;

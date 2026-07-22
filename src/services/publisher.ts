@@ -1,69 +1,61 @@
 import type { GeneratedPlugin } from '../types/plugin'
 import { GitHubClient, PLUGIN_TOPIC } from './github'
 
-export type PublishStage =
-  | 'creating-repo'
-  | 'committing'
-  | 'tagging'
-  | 'enabling-pages'
-  | 'building'
-  | 'done'
+/** One reported step of a publish/update, with a link to view it on GitHub. */
+export interface PublishStep {
+  key: 'repo' | 'commit' | 'pages' | 'deploy'
+  label: string
+  url?: string
+  status: 'active' | 'done' | 'error'
+}
+
+export type Report = (step: PublishStep) => void
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-/**
- * Turn a generated plugin into a live GitHub Pages site.
- * Reports progress via `onStage`; returns the plugin's live URL.
- */
+/** Create a repo and deploy a generated plugin to GitHub Pages. */
 export async function publishPlugin(
   gh: GitHubClient,
   login: string,
   repo: string,
   plugin: GeneratedPlugin,
-  onStage: (stage: PublishStage) => void,
+  report: Report,
 ): Promise<string> {
-  onStage('creating-repo')
+  const repoUrl = `https://github.com/${login}/${repo}`
+  const entry = plugin.manifest.entry
+  const liveUrl = `https://${login}.github.io/${repo}/${entry}`
+
+  report({ key: 'repo', label: 'Creating repository…', status: 'active' })
   await gh.createRepo(repo, plugin.manifest.description)
+  report({ key: 'repo', label: 'Repository created', url: repoUrl, status: 'done' })
 
-  // Newly-created repos can lag before the Contents API accepts writes.
-  onStage('committing')
-  await withRetry(() =>
-    gh.putFile(login, repo, 'index.html', plugin.html, 'Add plugin'),
-  )
-  await gh.putFile(
-    login,
-    repo,
-    'plugin.json',
-    JSON.stringify({ ...plugin.manifest }, null, 2),
-    'Add manifest',
-  )
+  report({ key: 'commit', label: 'Committing files…', status: 'active' })
+  await withRetry(() => gh.putFile(login, repo, 'index.html', plugin.html, 'Add plugin'))
+  await gh.putFile(login, repo, 'plugin.json', JSON.stringify({ ...plugin.manifest }, null, 2), 'Add manifest')
+  report({ key: 'commit', label: 'Files committed', url: repoUrl, status: 'done' })
 
-  onStage('tagging')
+  report({ key: 'pages', label: 'Enabling GitHub Pages…', status: 'active' })
   await gh.addTopics(login, repo, [PLUGIN_TOPIC])
-
-  onStage('enabling-pages')
   await withRetry(() => gh.enablePages(login, repo))
+  report({ key: 'pages', label: 'GitHub Pages enabled', url: `${repoUrl}/settings/pages`, status: 'done' })
 
-  onStage('building')
-  await waitForPages(gh, login, repo)
-
-  onStage('done')
-  return `https://${login}.github.io/${repo}/${plugin.manifest.entry}`
+  await deploy(gh, login, repo, repoUrl, liveUrl, report, false)
+  return liveUrl
 }
 
-/**
- * Commit updated files to an existing plugin repo (in place). Requires each
- * file's current `sha`, which the Contents API needs to overwrite it.
- */
+/** Commit updated files to an existing plugin repo and redeploy. */
 export async function updatePlugin(
   gh: GitHubClient,
   login: string,
   repo: string,
   entry: string,
   plugin: GeneratedPlugin,
-  onStage: (stage: PublishStage) => void,
+  report: Report,
 ): Promise<string> {
-  onStage('committing')
+  const repoUrl = `https://github.com/${login}/${repo}`
+  const liveUrl = `https://${login}.github.io/${repo}/${entry}`
+
+  report({ key: 'commit', label: 'Committing changes…', status: 'active' })
   const current = await gh.getContent(login, repo, entry)
   await gh.putFile(login, repo, entry, plugin.html, 'Update plugin', current.sha)
 
@@ -71,23 +63,76 @@ export async function updatePlugin(
   try {
     manifestSha = (await gh.getContent(login, repo, 'plugin.json')).sha
   } catch {
-    // Older plugins may predate the manifest; create it.
+    // older plugins may predate the manifest
   }
-  const manifest = { ...plugin.manifest, entry } // keep the existing entry path
-  await gh.putFile(
+  const manifest = { ...plugin.manifest, entry }
+  await gh.putFile(login, repo, 'plugin.json', JSON.stringify(manifest, null, 2), 'Update manifest', manifestSha)
+  await gh.addTopics(login, repo, [PLUGIN_TOPIC])
+  report({ key: 'commit', label: 'Changes committed', url: repoUrl, status: 'done' })
+
+  await deploy(gh, login, repo, repoUrl, liveUrl, report, true)
+  return liveUrl
+}
+
+/** Report the deploy step while polling the Pages build to completion. */
+async function deploy(
+  gh: GitHubClient,
+  login: string,
+  repo: string,
+  repoUrl: string,
+  liveUrl: string,
+  report: Report,
+  requireRebuild: boolean,
+): Promise<void> {
+  const deploymentsUrl = `${repoUrl}/deployments`
+  report({ key: 'deploy', label: 'Deploying to GitHub Pages…', url: deploymentsUrl, status: 'active' })
+
+  const built = await waitForPages(
+    gh,
     login,
     repo,
-    'plugin.json',
-    JSON.stringify(manifest, null, 2),
-    'Update manifest',
-    manifestSha,
+    (status) =>
+      report({ key: 'deploy', label: `Deploying to GitHub Pages… (${status})`, url: deploymentsUrl, status: 'active' }),
+    requireRebuild,
   )
 
-  onStage('tagging')
-  await gh.addTopics(login, repo, [PLUGIN_TOPIC]) // migrate to the current topic
+  report({
+    key: 'deploy',
+    label: built ? 'Deployed ✓' : 'Deploy still building — reload in a moment',
+    url: built ? liveUrl : deploymentsUrl,
+    status: 'done',
+  })
+}
 
-  onStage('done')
-  return `https://${login}.github.io/${repo}/${entry}`
+async function waitForPages(
+  gh: GitHubClient,
+  login: string,
+  repo: string,
+  onStatus: (status: string) => void,
+  requireRebuild: boolean,
+  timeoutMs = 120_000,
+): Promise<boolean> {
+  const start = Date.now()
+  const deadline = start + timeoutMs
+  let sawBuilding = false
+  while (Date.now() < deadline) {
+    try {
+      const info = await gh.getPagesStatus(login, repo)
+      const status = info.status
+      if (status) onStatus(status)
+      if (status === 'building') sawBuilding = true
+      if (status === 'errored') return false
+      // For updates, the site is already "built" from the previous deploy —
+      // wait until we observe a fresh build cycle (or a grace period elapses).
+      if (status === 'built' && (!requireRebuild || sawBuilding || Date.now() - start > 25_000)) {
+        return true
+      }
+    } catch {
+      // Pages metadata may 404 momentarily right after enabling.
+    }
+    await sleep(4000)
+  }
+  return false
 }
 
 async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
@@ -101,24 +146,4 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
     }
   }
   throw lastErr
-}
-
-async function waitForPages(
-  gh: GitHubClient,
-  login: string,
-  repo: string,
-  timeoutMs = 120_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    try {
-      const info = await gh.getPagesStatus(login, repo)
-      if (info.status === 'built') return
-      if (info.status === 'errored') throw new Error('GitHub Pages build failed.')
-    } catch {
-      /* Pages metadata may 404 momentarily right after enabling. */
-    }
-    await sleep(4000)
-  }
-  // Not fatal: Pages often finishes building shortly after we stop polling.
 }

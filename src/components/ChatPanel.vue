@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { auth } from '../services/auth'
 import { ai, type Agent } from '../services/ai'
 import { GitHubClient } from '../services/github'
-import { publishPlugin, updatePlugin, type PublishStage } from '../services/publisher'
+import { publishPlugin, updatePlugin, type PublishStep } from '../services/publisher'
 import { buildUpdatePrompt } from '../services/pluginGen'
 import { slugify, type Plugin, type PluginManifest } from '../types/plugin'
 
@@ -14,17 +14,14 @@ const github = new GitHubClient(() => auth.state.githubPat)
 
 const prompt = ref('')
 const busy = ref(false)
-const stage = ref<PublishStage | null>(null)
+const steps = ref<PublishStep[]>([])
 const error = ref<string | null>(null)
-const lastUrl = ref<string | null>(null)
 
-const stageLabel: Record<PublishStage, string> = {
-  'creating-repo': 'Creating repository…',
-  committing: 'Committing files…',
-  tagging: 'Tagging plugin…',
-  'enabling-pages': 'Enabling GitHub Pages…',
-  building: 'Waiting for Pages build…',
-  done: 'Done!',
+/** Upsert a reported step by key, preserving order. */
+function report(step: PublishStep) {
+  const i = steps.value.findIndex((s) => s.key === step.key)
+  if (i >= 0) steps.value.splice(i, 1, step)
+  else steps.value.push(step)
 }
 
 // Group agents by provider for optgroups in the dropdown.
@@ -50,7 +47,6 @@ async function build() {
     error.value = 'Connect an AI provider first.'
     return
   }
-  // GitHub is only required to publish/update — request it at build time.
   const login = auth.state.login
   if (!login) {
     error.value = 'Connect GitHub in the sidebar to publish your plugin.'
@@ -59,8 +55,7 @@ async function build() {
 
   busy.value = true
   error.value = null
-  lastUrl.value = null
-  const onStage = (s: PublishStage) => (stage.value = s)
+  steps.value = []
 
   try {
     if (props.editing) {
@@ -76,8 +71,7 @@ async function build() {
         buildUpdatePrompt(manifest, current.text, prompt.value),
         selected.modelId,
       )
-      const url = await updatePlugin(github, login, target.repo, target.entry, updated, onStage)
-      lastUrl.value = url
+      const url = await updatePlugin(github, login, target.repo, target.entry, updated, report)
       prompt.value = ''
       emit('published', {
         name: updated.manifest.name,
@@ -91,8 +85,7 @@ async function build() {
     } else {
       const plugin = await selected.client.generatePlugin(prompt.value, selected.modelId)
       const repo = slugify(plugin.manifest.name) || `plugin-${Date.now()}`
-      const url = await publishPlugin(github, login, repo, plugin, onStage)
-      lastUrl.value = url
+      const url = await publishPlugin(github, login, repo, plugin, report)
       prompt.value = ''
       emit('published', { ...plugin.manifest, repo, url })
     }
@@ -100,7 +93,6 @@ async function build() {
     error.value = err instanceof Error ? err.message : String(err)
   } finally {
     busy.value = false
-    stage.value = null
   }
 }
 </script>
@@ -121,37 +113,31 @@ async function build() {
       "
     />
     <div class="row">
-      <select
-        :value="selectedId"
-        :disabled="busy || !ai.hasAgents.value"
-        @change="onSelect"
-      >
+      <select :value="selectedId" :disabled="busy || !ai.hasAgents.value" @change="onSelect">
         <template v-if="ai.hasAgents.value">
           <optgroup v-for="g in grouped" :key="g.providerLabel" :label="g.providerLabel">
             <option v-for="a in g.agents" :key="a.id" :value="a.id">{{ a.label }}</option>
           </optgroup>
         </template>
       </select>
-      <button
-        :disabled="busy || prompt.trim() === '' || !ai.hasAgents.value"
-        @click="build"
-      >
+      <button :disabled="busy || prompt.trim() === '' || !ai.hasAgents.value" @click="build">
         {{ busy ? (editing ? 'Updating…' : 'Building…') : editing ? 'Update plugin' : 'Build & publish' }}
       </button>
     </div>
 
-    <button v-if="editing && !busy" class="link" @click="$emit('cancelEdit')">
-      Cancel edit
-    </button>
+    <button v-if="editing && !busy" class="link" @click="$emit('cancelEdit')">Cancel edit</button>
 
-    <p v-if="!ai.hasAgents.value" class="hint">
-      Connect an AI provider above to enable building.
-    </p>
-    <p v-if="stage" class="status">{{ stageLabel[stage] }}</p>
+    <p v-if="!ai.hasAgents.value" class="hint">Connect an AI provider above to enable building.</p>
+
+    <ul v-if="steps.length" class="steps">
+      <li v-for="s in steps" :key="s.key" :class="s.status">
+        <span class="dot">{{ s.status === 'done' ? '✓' : s.status === 'error' ? '✕' : '…' }}</span>
+        <span class="lbl">{{ s.label }}</span>
+        <a v-if="s.url" :href="s.url" target="_blank" rel="noreferrer" title="View">↗</a>
+      </li>
+    </ul>
+
     <p v-if="error" class="error">{{ error }}</p>
-    <p v-if="lastUrl" class="ok">
-      Published → <a :href="lastUrl" target="_blank" rel="noreferrer">{{ lastUrl }}</a>
-    </p>
   </section>
 </template>
 
@@ -204,14 +190,39 @@ button.link {
 .hint {
   color: #888;
 }
-.status {
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0.6rem;
+  border: 1px solid #e6e6e6;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+.steps .dot {
+  width: 1rem;
+  text-align: center;
+}
+.steps li.active .lbl {
   color: #1f6feb;
+}
+.steps li.done .dot {
+  color: #2e7d32;
+}
+.steps .lbl {
+  flex: 1;
+}
+.steps a {
+  text-decoration: none;
 }
 .error {
   color: #c0392b;
-}
-.ok {
-  color: #2e7d32;
-  word-break: break-all;
 }
 </style>
