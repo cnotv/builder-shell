@@ -39,7 +39,7 @@ export async function publishPlugin(
   await withRetry(() => gh.enablePages(login, repo))
   report({ key: 'pages', label: 'GitHub Pages enabled', url: `${repoUrl}/settings/pages`, status: 'done' })
 
-  await deploy(gh, login, repo, repoUrl, liveUrl, report, false)
+  await deploy(gh, login, repo, repoUrl, liveUrl, report, false, plugin.html)
   return liveUrl
 }
 
@@ -70,7 +70,7 @@ export async function updatePlugin(
   await gh.addTopics(login, repo, [PLUGIN_TOPIC])
   report({ key: 'commit', label: 'Changes committed', url: repoUrl, status: 'done' })
 
-  await deploy(gh, login, repo, repoUrl, liveUrl, report, true)
+  await deploy(gh, login, repo, repoUrl, liveUrl, report, true, plugin.html)
   return liveUrl
 }
 
@@ -83,6 +83,7 @@ async function deploy(
   liveUrl: string,
   report: Report,
   requireRebuild: boolean,
+  expectedHtml: string,
 ): Promise<void> {
   const deploymentsUrl = `${repoUrl}/deployments`
   report({ key: 'deploy', label: 'Deploying to GitHub Pages…', url: deploymentsUrl, status: 'active' })
@@ -96,12 +97,39 @@ async function deploy(
     requireRebuild,
   )
 
+  if (!built) {
+    report({ key: 'deploy', label: 'Deploy still building — reload in a moment', url: deploymentsUrl, status: 'done' })
+    return
+  }
+
+  // Confirm the CDN edge is actually serving the new bytes before we call it
+  // done — the Pages "built" status can flip before propagation completes.
+  report({ key: 'deploy', label: 'Verifying live content…', url: liveUrl, status: 'active' })
+  const live = await verifyLive(liveUrl, expectedHtml)
   report({
     key: 'deploy',
-    label: built ? 'Deployed ✓' : 'Deploy still building — reload in a moment',
-    url: built ? liveUrl : deploymentsUrl,
+    label: live ? 'Deployed ✓ (live)' : 'Deployed — CDN still catching up, reload shortly',
+    url: liveUrl,
     status: 'done',
   })
+}
+
+/**
+ * Poll the live Pages URL (same origin as the shell on github.io) until it
+ * serves exactly the bytes we just committed. Confirms propagation is done.
+ */
+async function verifyLive(liveUrl: string, expectedHtml: string, attempts = 12): Promise<boolean> {
+  const want = expectedHtml.trim()
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(`${liveUrl}?_cb=${Date.now()}`, { cache: 'no-store' })
+      if (res.ok && (await res.text()).trim() === want) return true
+    } catch {
+      // Cross-origin in local dev (no CORS on Pages) — degrade gracefully.
+    }
+    await sleep(3000)
+  }
+  return false
 }
 
 async function waitForPages(
