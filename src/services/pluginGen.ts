@@ -7,7 +7,7 @@ import { extractJson } from './json'
  * self-contained single-file plugin as a JSON object.
  */
 export const PLUGIN_SYSTEM = [
-  'You generate self-contained single-file web mini-apps ("plugins").',
+  'You generate self-contained single-file web plugins.',
   'Respond with ONLY a JSON object, no markdown fences, matching:',
   '{ "name": string, "description": string, "emoji": string (one emoji), "html": string }',
   'The "html" is a COMPLETE standalone HTML document with all CSS and JS inline.',

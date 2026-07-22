@@ -4,8 +4,8 @@ import { auth } from './services/auth'
 import { GitHubClient } from './services/github'
 import { Registry } from './services/registry'
 import type { Plugin } from './types/plugin'
-import SettingsGate from './components/SettingsGate.vue'
 import AiConnections from './components/AiConnections.vue'
+import GitHubConnect from './components/GitHubConnect.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import PluginGallery from './components/PluginGallery.vue'
 import PluginHost from './components/PluginHost.vue'
@@ -15,7 +15,10 @@ const loading = ref(false)
 const selected = ref<Plugin | null>(null)
 
 async function refresh() {
-  if (!auth.state.login) return
+  if (!auth.state.login) {
+    plugins.value = []
+    return
+  }
   loading.value = true
   try {
     const gh = new GitHubClient(() => auth.state.githubPat)
@@ -31,27 +34,28 @@ function select(p: Plugin) {
 }
 
 onMounted(async () => {
-  await auth.validate()
-  if (auth.isReady.value) await refresh()
+  if (auth.state.githubPat) {
+    await auth.validate()
+    if (auth.isReady.value) await refresh()
+  }
 })
 </script>
 
 <template>
-  <SettingsGate v-if="!auth.isReady.value" />
-
-  <div v-else class="app">
+  <div class="app">
     <header>
       <strong>builder-shell</strong>
-      <span class="user">
+      <span v-if="auth.state.login" class="user">
         <img v-if="auth.state.avatarUrl" :src="auth.state.avatarUrl" alt="" />
         {{ auth.state.login }}
       </span>
-      <button class="logout" @click="auth.signOut()">Sign out</button>
     </header>
 
     <main>
       <aside>
         <AiConnections />
+        <hr />
+        <GitHubConnect @connected="refresh" />
         <hr />
         <ChatPanel @published="refresh" />
         <hr />
@@ -91,13 +95,6 @@ header {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-}
-.logout {
-  border: 1px solid #ccc;
-  background: #fff;
-  border-radius: 6px;
-  padding: 0.3rem 0.6rem;
-  cursor: pointer;
 }
 main {
   display: grid;

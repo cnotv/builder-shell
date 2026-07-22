@@ -43,11 +43,15 @@ function onSelect(e: Event) {
 
 async function build() {
   if (prompt.value.trim() === '' || busy.value) return
-  const login = auth.state.login
-  if (!login) return
   const selected = ai.clientForSelected()
   if (!selected) {
     error.value = 'Connect an AI provider first.'
+    return
+  }
+  // GitHub is only required to publish — request it at build time.
+  const login = auth.state.login
+  if (!login) {
+    error.value = 'Connect GitHub in the sidebar to publish your plugin.'
     return
   }
   busy.value = true
@@ -71,7 +75,7 @@ async function build() {
 
 <template>
   <section class="chat">
-    <h2>Describe a mini-app</h2>
+    <h2>Describe a plugin</h2>
     <textarea
       v-model="prompt"
       :disabled="busy"
