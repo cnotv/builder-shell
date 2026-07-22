@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractJson } from './anthropic'
+import { extractJson } from './json'
 
 describe('extractJson', () => {
   it('parses a bare JSON object', () => {

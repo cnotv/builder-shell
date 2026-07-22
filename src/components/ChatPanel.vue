@@ -1,18 +1,16 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { auth } from '../services/auth'
-import { AnthropicClient, MODELS, type ModelId } from '../services/anthropic'
+import { ai, type Agent } from '../services/ai'
 import { GitHubClient } from '../services/github'
 import { publishPlugin, type PublishStage } from '../services/publisher'
 import { slugify } from '../types/plugin'
 
 const emit = defineEmits<{ published: [] }>()
 
-const anthropic = new AnthropicClient(() => auth.state.anthropicApiKey)
 const github = new GitHubClient(() => auth.state.githubPat)
 
 const prompt = ref('')
-const model = ref<ModelId>('claude-opus-4-8')
 const busy = ref(false)
 const stage = ref<PublishStage | null>(null)
 const error = ref<string | null>(null)
@@ -27,15 +25,36 @@ const stageLabel: Record<PublishStage, string> = {
   done: 'Done!',
 }
 
+// Group agents by provider for optgroups in the dropdown.
+const grouped = computed(() => {
+  const map = new Map<string, { providerLabel: string; agents: Agent[] }>()
+  for (const a of ai.agents.value) {
+    if (!map.has(a.providerId)) map.set(a.providerId, { providerLabel: a.providerLabel, agents: [] })
+    map.get(a.providerId)!.agents.push(a)
+  }
+  return [...map.values()]
+})
+
+const selectedId = computed(() => ai.selectedAgent.value?.id ?? '')
+
+function onSelect(e: Event) {
+  ai.selectAgent((e.target as HTMLSelectElement).value)
+}
+
 async function build() {
   if (prompt.value.trim() === '' || busy.value) return
   const login = auth.state.login
   if (!login) return
+  const selected = ai.clientForSelected()
+  if (!selected) {
+    error.value = 'Connect an AI provider first.'
+    return
+  }
   busy.value = true
   error.value = null
   lastUrl.value = null
   try {
-    const plugin = await anthropic.generatePlugin(prompt.value, model.value)
+    const plugin = await selected.client.generatePlugin(prompt.value, selected.modelId)
     const repo = slugify(plugin.manifest.name) || `plugin-${Date.now()}`
     const url = await publishPlugin(github, login, repo, plugin, (s) => (stage.value = s))
     lastUrl.value = url
@@ -60,14 +79,28 @@ async function build() {
       placeholder="e.g. A pomodoro timer with start/stop and a tomato that fills up"
     />
     <div class="row">
-      <select v-model="model" :disabled="busy">
-        <option v-for="m in MODELS" :key="m.id" :value="m.id">{{ m.label }}</option>
+      <select
+        :value="selectedId"
+        :disabled="busy || !ai.hasAgents.value"
+        @change="onSelect"
+      >
+        <template v-if="ai.hasAgents.value">
+          <optgroup v-for="g in grouped" :key="g.providerLabel" :label="g.providerLabel">
+            <option v-for="a in g.agents" :key="a.id" :value="a.id">{{ a.label }}</option>
+          </optgroup>
+        </template>
       </select>
-      <button :disabled="busy || prompt.trim() === ''" @click="build">
+      <button
+        :disabled="busy || prompt.trim() === '' || !ai.hasAgents.value"
+        @click="build"
+      >
         {{ busy ? 'Building…' : 'Build & publish' }}
       </button>
     </div>
 
+    <p v-if="!ai.hasAgents.value" class="hint">
+      Connect an AI provider above to enable building.
+    </p>
     <p v-if="stage" class="status">{{ stageLabel[stage] }}</p>
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="lastUrl" class="ok">
@@ -97,6 +130,7 @@ select {
   padding: 0.5rem;
   border-radius: 8px;
   border: 1px solid #ccc;
+  min-width: 8rem;
 }
 button {
   flex: 1;
@@ -111,6 +145,9 @@ button {
 button:disabled {
   opacity: 0.6;
   cursor: default;
+}
+.hint {
+  color: #888;
 }
 .status {
   color: #1f6feb;

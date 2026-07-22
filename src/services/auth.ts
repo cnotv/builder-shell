@@ -2,11 +2,9 @@ import { computed, reactive } from 'vue'
 import { GitHubClient } from './github'
 
 const PAT_KEY = 'builder-shell.githubPat'
-const ANTHROPIC_KEY = 'builder-shell.anthropicApiKey'
 
 interface AuthState {
   githubPat: string
-  anthropicApiKey: string
   login: string | null
   avatarUrl: string | null
   validating: boolean
@@ -15,17 +13,14 @@ interface AuthState {
 
 const state = reactive<AuthState>({
   githubPat: localStorage.getItem(PAT_KEY) ?? '',
-  anthropicApiKey: localStorage.getItem(ANTHROPIC_KEY) ?? '',
   login: null,
   avatarUrl: null,
   validating: false,
   error: null,
 })
 
-/** True once both credentials are present and the PAT has been validated. */
-const isReady = computed(
-  () => state.login !== null && state.anthropicApiKey.trim() !== '',
-)
+/** True once the GitHub PAT is present and validated. This is "the login." */
+const isReady = computed(() => state.login !== null)
 
 /** Validate the current PAT by resolving the GitHub user. Safe to call repeatedly. */
 async function validate(): Promise<void> {
@@ -55,14 +50,8 @@ function setGithubPat(value: string): void {
   localStorage.setItem(PAT_KEY, state.githubPat)
 }
 
-function setAnthropicApiKey(value: string): void {
-  state.anthropicApiKey = value.trim()
-  localStorage.setItem(ANTHROPIC_KEY, state.anthropicApiKey)
-}
-
-function clear(): void {
+function signOut(): void {
   setGithubPat('')
-  setAnthropicApiKey('')
   state.login = null
   state.avatarUrl = null
   state.error = null
@@ -73,6 +62,5 @@ export const auth = {
   isReady,
   validate,
   setGithubPat,
-  setAnthropicApiKey,
-  clear,
+  signOut,
 }

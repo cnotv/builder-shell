@@ -3,11 +3,9 @@ import { ref } from 'vue'
 import { auth } from '../services/auth'
 
 const pat = ref(auth.state.githubPat)
-const key = ref(auth.state.anthropicApiKey)
 
-async function save() {
+async function signIn() {
   auth.setGithubPat(pat.value)
-  auth.setAnthropicApiKey(key.value)
   await auth.validate()
 }
 </script>
@@ -16,9 +14,9 @@ async function save() {
   <div class="gate">
     <h1>builder-shell</h1>
     <p class="lead">
-      A backendless, self-extending app. Paste your own credentials — they are
+      A backendless, self-extending app. Sign in with a GitHub token — it is
       stored only in this browser's <code>localStorage</code> and sent directly
-      to GitHub and Anthropic.
+      to GitHub. You'll connect an AI provider after signing in.
     </p>
 
     <label>
@@ -33,18 +31,8 @@ async function save() {
       </a>
     </p>
 
-    <label>
-      Anthropic API key
-      <input v-model="key" type="password" placeholder="sk-ant-..." autocomplete="off" />
-    </label>
-    <p class="hint">
-      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
-        Get a key →
-      </a>
-    </p>
-
-    <button :disabled="auth.state.validating" @click="save">
-      {{ auth.state.validating ? 'Validating…' : 'Save & continue' }}
+    <button :disabled="auth.state.validating" @click="signIn">
+      {{ auth.state.validating ? 'Signing in…' : 'Sign in with GitHub' }}
     </button>
     <p v-if="auth.state.error" class="error">{{ auth.state.error }}</p>
   </div>

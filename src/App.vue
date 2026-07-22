@@ -5,6 +5,7 @@ import { GitHubClient } from './services/github'
 import { Registry } from './services/registry'
 import type { Plugin } from './types/plugin'
 import SettingsGate from './components/SettingsGate.vue'
+import AiConnections from './components/AiConnections.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import PluginGallery from './components/PluginGallery.vue'
 import PluginHost from './components/PluginHost.vue'
@@ -45,11 +46,13 @@ onMounted(async () => {
         <img v-if="auth.state.avatarUrl" :src="auth.state.avatarUrl" alt="" />
         {{ auth.state.login }}
       </span>
-      <button class="logout" @click="auth.clear()">Sign out</button>
+      <button class="logout" @click="auth.signOut()">Sign out</button>
     </header>
 
     <main>
       <aside>
+        <AiConnections />
+        <hr />
         <ChatPanel @published="refresh" />
         <hr />
         <PluginGallery
