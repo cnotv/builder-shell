@@ -17,6 +17,10 @@ const plugins = ref<Plugin[]>([])
 const loading = ref(false)
 const editing = ref<Plugin | null>(null)
 
+const tab = ref<'plugins' | 'settings'>('plugins')
+const showCreate = ref(false)
+const showSelfEdit = ref(false)
+
 async function refresh() {
   // Browse the connected user's plugins, or the configured owner's as a guest.
   const owner = auth.state.login ?? SHELL.owner
@@ -35,14 +39,37 @@ async function refresh() {
 
 function edit(p: Plugin) {
   editing.value = p
+  showSelfEdit.value = false
+  showCreate.value = true
 }
 
 function load(p: Plugin) {
   loaded.loadPlugin(p)
 }
 
-async function onPublished(p: Plugin) {
+function toggleCreate() {
+  if (showCreate.value) {
+    showCreate.value = false
+    editing.value = null
+  } else {
+    editing.value = null
+    showSelfEdit.value = false
+    showCreate.value = true
+  }
+}
+
+function toggleSelfEdit() {
+  showSelfEdit.value = !showSelfEdit.value
+  if (showSelfEdit.value) showCreate.value = false
+}
+
+function cancelCreate() {
+  showCreate.value = false
   editing.value = null
+}
+
+async function onPublished(p: Plugin) {
+  cancelCreate()
   loaded.loadPlugin(p)
   await refresh()
 }
@@ -57,6 +84,14 @@ onMounted(async () => {
   <div class="app">
     <header>
       <strong>builder-shell</strong>
+      <nav class="tabs">
+        <button type="button" :class="{ active: tab === 'plugins' }" @click="tab = 'plugins'">
+          Plugins
+        </button>
+        <button type="button" :class="{ active: tab === 'settings' }" @click="tab = 'settings'">
+          Settings
+        </button>
+      </nav>
       <span v-if="auth.state.login" class="user">
         <img v-if="auth.state.avatarUrl" :src="auth.state.avatarUrl" alt="" />
         {{ auth.state.login }}
@@ -64,13 +99,36 @@ onMounted(async () => {
     </header>
 
     <main>
-      <!-- Left column: Connections + Plugin loader -->
-      <aside class="left">
+      <section v-if="tab === 'settings'" class="tab">
         <div class="panel">
           <AiConnections />
           <hr />
           <GitHubConnect @connected="refresh" />
         </div>
+      </section>
+
+      <section v-else class="tab">
+        <div class="panel">
+          <div class="toolbar">
+            <button @click="toggleCreate">{{ showCreate ? 'Close' : 'New plugin' }}</button>
+            <button
+              v-if="auth.state.login === SHELL.owner"
+              class="secondary"
+              @click="toggleSelfEdit"
+            >
+              {{ showSelfEdit ? 'Close' : 'Edit app' }}
+            </button>
+          </div>
+
+          <div v-if="showCreate" class="editor-area">
+            <ChatPanel :editing="editing" @published="onPublished" @cancel-edit="cancelCreate" />
+          </div>
+
+          <div v-if="showSelfEdit" class="editor-area">
+            <SelfEdit />
+          </div>
+        </div>
+
         <div class="panel">
           <PluginGallery
             :plugins="plugins"
@@ -80,22 +138,8 @@ onMounted(async () => {
             @refresh="refresh"
           />
         </div>
-      </aside>
 
-      <!-- Right column: Plugin creator + Loaded plugins -->
-      <section class="work">
-        <div class="panel">
-          <ChatPanel :editing="editing" @published="onPublished" @cancel-edit="editing = null" />
-        </div>
-
-        <div v-if="auth.state.login === SHELL.owner" class="panel">
-          <SelfEdit />
-        </div>
-
-        <div class="panel grow">
-          <h3 class="panel-title">Loaded plugins</h3>
-          <LoadedPlugins />
-        </div>
+        <LoadedPlugins />
       </section>
     </main>
   </div>
@@ -103,7 +147,7 @@ onMounted(async () => {
 
 <style scoped>
 .app {
-  max-width: 84rem;
+  max-width: 64rem;
   margin: 0 auto;
   padding: 1rem;
 }
@@ -113,6 +157,24 @@ header {
   gap: 1rem;
   padding-bottom: 1rem;
   border-bottom: 1px solid #eee;
+}
+.tabs {
+  display: flex;
+  gap: 0.4rem;
+}
+.tabs button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 999px;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 600;
+  color: #444;
+}
+.tabs button.active {
+  background: #1f6feb;
+  border-color: #1f6feb;
+  color: #fff;
 }
 .user {
   margin-left: auto;
@@ -126,18 +188,12 @@ header {
   border-radius: 50%;
 }
 main {
-  display: grid;
-  grid-template-columns: 22rem 1fr;
-  gap: 1.25rem;
   margin-top: 1rem;
-  align-items: start;
 }
-.left,
-.work {
+.tab {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  min-width: 0;
 }
 .panel {
   border: 1px solid #e6e6e6;
@@ -145,20 +201,30 @@ main {
   padding: 1rem;
   background: #fff;
 }
-.panel.grow {
-  min-height: 12rem;
+.toolbar {
+  display: flex;
+  gap: 0.6rem;
 }
-.panel-title {
-  margin: 0 0 0.6rem;
+.toolbar button {
+  padding: 0.55rem 0.9rem;
+  border: 0;
+  border-radius: 8px;
+  background: #1f6feb;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toolbar button.secondary {
+  background: #fff;
+  color: #333;
+  border: 1px solid #ccc;
+}
+.editor-area {
+  margin-top: 1rem;
 }
 hr {
   border: 0;
   border-top: 1px solid #eee;
   margin: 1rem 0;
-}
-@media (max-width: 820px) {
-  main {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

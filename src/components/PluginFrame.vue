@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { LoadedPlugin } from '../services/loaded'
 import { loaded } from '../services/loaded'
 import { pluginStore } from '../services/pluginStore'
@@ -13,12 +13,26 @@ const frame = ref<HTMLIFrameElement | null>(null)
 const height = ref(420)
 const collapsed = ref(false)
 const editing = ref(false)
+const status = ref<'loading' | 'ready' | 'error'>('loading')
 
 /** Cache-busted src: a new reloadKey forces the iframe to re-fetch. */
 const src = computed(() => {
   const sep = props.plugin.url.includes('?') ? '&' : '?'
   return `${props.plugin.url}${sep}r=${props.plugin.reloadKey}`
 })
+
+// Reset the status indicator whenever the iframe is about to (re)load.
+watch(src, () => {
+  status.value = 'loading'
+})
+
+function onFrameLoad() {
+  status.value = 'ready'
+}
+
+function onFrameError() {
+  status.value = 'error'
+}
 
 function reply(msg: unknown) {
   frame.value?.contentWindow?.postMessage(msg, '*')
@@ -64,6 +78,9 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
         {{ collapsed ? '▸' : '▾' }}
       </button>
       <span class="title">{{ plugin.emoji }} {{ plugin.name }}</span>
+      <span class="status" :class="status">
+        {{ status === 'ready' ? 'Ready' : status === 'error' ? 'Error' : 'Loading…' }}
+      </span>
       <a class="open" :href="plugin.url" target="_blank" rel="noreferrer" title="Open in new tab">↗</a>
       <button class="act" :class="{ active: editing }" @click="editing = !editing">
         {{ editing ? 'Close editor' : 'Edit' }}
@@ -83,6 +100,8 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
       :style="{ height: height + 'px' }"
       sandbox="allow-scripts"
       title="plugin"
+      @load="onFrameLoad"
+      @error="onFrameError"
     />
   </div>
 </template>
@@ -109,6 +128,27 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.status {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: #eee;
+  color: #666;
+  white-space: nowrap;
+  flex: none;
+}
+.status.loading {
+  background: #eef4ff;
+  color: #1f6feb;
+}
+.status.ready {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+.status.error {
+  background: #fdecea;
+  color: #c0392b;
 }
 .open {
   text-decoration: none;
