@@ -4,9 +4,9 @@ import { OpenAiClient } from './openai'
 
 /** A client any provider must expose to generate a plugin. */
 export interface ProviderClient {
-  generatePlugin(prompt: string, modelId: string): Promise<GeneratedPlugin>
+  generatePlugin(prompt: string, modelId: string, signal?: AbortSignal): Promise<GeneratedPlugin>
   /** Raw completion — used by the multi-file self-edit flow. */
-  completeText(prompt: string, system: string, modelId: string): Promise<string>
+  completeText(prompt: string, system: string, modelId: string, signal?: AbortSignal): Promise<string>
 }
 
 export interface ProviderModel {

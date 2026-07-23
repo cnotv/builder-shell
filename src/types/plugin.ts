@@ -17,6 +17,8 @@ export interface Plugin extends PluginManifest {
 export interface GeneratedPlugin {
   manifest: PluginManifest
   html: string
+  /** The model's raw response text, kept so the UI can display it. */
+  raw?: string
 }
 
 const SLUG_RE = /[^a-z0-9]+/g

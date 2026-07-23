@@ -71,5 +71,5 @@ export function parseGenerated(text: string): GeneratedPlugin {
   if (typeof html !== 'string' || html.trim() === '') {
     throw new Error('Generated plugin has no HTML.')
   }
-  return { manifest, html }
+  return { manifest, html, raw: text }
 }

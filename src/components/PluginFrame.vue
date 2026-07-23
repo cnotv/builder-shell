@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { LoadedPlugin } from '../services/loaded'
+import { loaded } from '../services/loaded'
 import { pluginStore } from '../services/pluginStore'
+import type { Plugin } from '../types/plugin'
+import ChatPanel from './ChatPanel.vue'
 
 const props = defineProps<{ plugin: LoadedPlugin }>()
 defineEmits<{ unload: []; reload: [] }>()
@@ -9,6 +12,7 @@ defineEmits<{ unload: []; reload: [] }>()
 const frame = ref<HTMLIFrameElement | null>(null)
 const height = ref(420)
 const collapsed = ref(false)
+const editing = ref(false)
 
 /** Cache-busted src: a new reloadKey forces the iframe to re-fetch. */
 const src = computed(() => {
@@ -43,6 +47,12 @@ function onMessage(event: MessageEvent) {
   }
 }
 
+/** Applied from the inline editor: refresh the loaded plugin and go back to the frame. */
+function onPublished(p: Plugin) {
+  loaded.loadPlugin(p)
+  editing.value = false
+}
+
 onMounted(() => window.addEventListener('message', onMessage))
 onUnmounted(() => window.removeEventListener('message', onMessage))
 </script>
@@ -55,11 +65,19 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
       </button>
       <span class="title">{{ plugin.emoji }} {{ plugin.name }}</span>
       <a class="open" :href="plugin.url" target="_blank" rel="noreferrer" title="Open in new tab">↗</a>
+      <button class="act" :class="{ active: editing }" @click="editing = !editing">
+        {{ editing ? 'Close editor' : 'Edit' }}
+      </button>
       <button class="act" @click="$emit('reload')">Reload</button>
       <button class="act" @click="$emit('unload')">Unload</button>
     </div>
+
+    <div v-if="!collapsed && editing" class="editor">
+      <ChatPanel :editing="plugin" @published="onPublished" @cancel-edit="editing = false" />
+    </div>
+
     <iframe
-      v-show="!collapsed"
+      v-show="!collapsed && !editing"
       ref="frame"
       :src="src"
       :style="{ height: height + 'px' }"
@@ -111,6 +129,14 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
   padding: 0.2rem 0.5rem;
   cursor: pointer;
   font-size: 0.8rem;
+}
+.act.active {
+  background: #eef4ff;
+  color: #1f6feb;
+  border-color: #1f6feb;
+}
+.editor {
+  padding: 0.75rem;
 }
 iframe {
   width: 100%;

@@ -11,6 +11,7 @@ interface MessageOpts {
   system?: string
   messages: { role: 'user' | 'assistant'; content: string }[]
   maxTokens?: number
+  signal?: AbortSignal
 }
 
 function headers(apiKey: string): HeadersInit {
@@ -34,6 +35,7 @@ export class AnthropicClient {
     const res = await fetch(API, {
       method: 'POST',
       headers: headers(this.getKey()),
+      signal: opts.signal,
       body: JSON.stringify({
         model: opts.model,
         max_tokens: opts.maxTokens ?? 8000,
@@ -58,22 +60,24 @@ export class AnthropicClient {
   }
 
   /** Raw completion for the self-edit flow. */
-  completeText(prompt: string, system: string, model: string): Promise<string> {
+  completeText(prompt: string, system: string, model: string, signal?: AbortSignal): Promise<string> {
     return this.complete({
       model,
       system,
       maxTokens: 32000,
       messages: [{ role: 'user', content: prompt }],
+      signal,
     })
   }
 
   /** Ask Claude to design a self-contained single-file plugin. */
-  async generatePlugin(prompt: string, model: string): Promise<GeneratedPlugin> {
+  async generatePlugin(prompt: string, model: string, signal?: AbortSignal): Promise<GeneratedPlugin> {
     const text = await this.complete({
       model,
       system: PLUGIN_SYSTEM,
       maxTokens: 16000,
       messages: [{ role: 'user', content: prompt }],
+      signal,
     })
     return parseGenerated(text)
   }

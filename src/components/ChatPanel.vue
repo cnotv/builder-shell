@@ -16,6 +16,8 @@ const prompt = ref('')
 const busy = ref(false)
 const steps = ref<PublishStep[]>([])
 const error = ref<string | null>(null)
+const answer = ref<string | null>(null)
+const controller = ref<AbortController | null>(null)
 
 /** Upsert a reported step by key, preserving order. */
 function report(step: PublishStep) {
@@ -40,6 +42,10 @@ function onSelect(e: Event) {
   ai.selectAgent((e.target as HTMLSelectElement).value)
 }
 
+function stop() {
+  controller.value?.abort()
+}
+
 async function build() {
   if (prompt.value.trim() === '' || busy.value) return
   const selected = ai.clientForSelected()
@@ -55,7 +61,10 @@ async function build() {
 
   busy.value = true
   error.value = null
+  answer.value = null
   steps.value = []
+  const abort = new AbortController()
+  controller.value = abort
 
   try {
     if (props.editing) {
@@ -70,7 +79,9 @@ async function build() {
       const updated = await selected.client.generatePlugin(
         buildUpdatePrompt(manifest, current.text, prompt.value),
         selected.modelId,
+        abort.signal,
       )
+      answer.value = updated.raw ?? null
       const url = await updatePlugin(github, login, target.repo, target.entry, updated, report)
       prompt.value = ''
       emit('published', {
@@ -83,16 +94,22 @@ async function build() {
       })
       emit('cancelEdit')
     } else {
-      const plugin = await selected.client.generatePlugin(prompt.value, selected.modelId)
+      const plugin = await selected.client.generatePlugin(prompt.value, selected.modelId, abort.signal)
+      answer.value = plugin.raw ?? null
       const repo = slugify(plugin.manifest.name) || `plugin-${Date.now()}`
       const url = await publishPlugin(github, login, repo, plugin, report)
       prompt.value = ''
       emit('published', { ...plugin.manifest, repo, url })
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    if (abort.signal.aborted) {
+      error.value = 'Stopped.'
+    } else {
+      error.value = err instanceof Error ? err.message : String(err)
+    }
   } finally {
     busy.value = false
+    controller.value = null
   }
 }
 </script>
@@ -120,8 +137,9 @@ async function build() {
           </optgroup>
         </template>
       </select>
-      <button :disabled="busy || prompt.trim() === '' || !ai.hasAgents.value" @click="build">
-        {{ busy ? (editing ? 'Updating…' : 'Building…') : editing ? 'Update plugin' : 'Build & publish' }}
+      <button v-if="busy" class="stop" @click="stop">Stop</button>
+      <button v-else :disabled="prompt.trim() === '' || !ai.hasAgents.value" @click="build">
+        {{ editing ? 'Update plugin' : 'Build & publish' }}
       </button>
     </div>
 
@@ -136,6 +154,14 @@ async function build() {
         <a v-if="s.url" :href="s.url" target="_blank" rel="noreferrer" title="View">↗</a>
       </li>
     </ul>
+
+    <div v-if="answer" class="answer">
+      <div class="answer-head">
+        <span>AI response</span>
+        <button class="link" @click="answer = null">Hide</button>
+      </div>
+      <pre>{{ answer }}</pre>
+    </div>
 
     <p v-if="error" class="error">{{ error }}</p>
   </section>
@@ -177,6 +203,9 @@ button {
 button:disabled {
   opacity: 0.6;
   cursor: default;
+}
+button.stop {
+  background: #c0392b;
 }
 button.link {
   flex: none;
@@ -221,6 +250,33 @@ button.link {
 }
 .steps a {
   text-decoration: none;
+}
+.answer {
+  border: 1px solid #e6e6e6;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.answer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.6rem;
+  background: #f6f8fa;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #555;
+}
+.answer-head button {
+  flex: none;
+}
+.answer pre {
+  margin: 0;
+  padding: 0.6rem;
+  max-height: 16rem;
+  overflow: auto;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .error {
   color: #c0392b;

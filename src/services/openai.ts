@@ -15,13 +15,14 @@ export class OpenAiClient {
   constructor(private readonly getKey: () => string) {}
 
   /** Raw completion for the self-edit flow. */
-  async completeText(prompt: string, system: string, model: string): Promise<string> {
+  async completeText(prompt: string, system: string, model: string, signal?: AbortSignal): Promise<string> {
     const res = await fetch(API, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.getKey()}`,
         'content-type': 'application/json',
       },
+      signal,
       body: JSON.stringify({
         model,
         messages: [
@@ -35,13 +36,14 @@ export class OpenAiClient {
     return data.choices?.[0]?.message?.content ?? ''
   }
 
-  async generatePlugin(prompt: string, model: string): Promise<GeneratedPlugin> {
+  async generatePlugin(prompt: string, model: string, signal?: AbortSignal): Promise<GeneratedPlugin> {
     const res = await fetch(API, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.getKey()}`,
         'content-type': 'application/json',
       },
+      signal,
       body: JSON.stringify({
         model,
         // The system prompt already instructs JSON-only output; json_object
