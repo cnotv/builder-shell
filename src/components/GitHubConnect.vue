@@ -1,10 +1,30 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { auth } from '../services/auth'
 
 const emit = defineEmits<{ connected: [] }>()
 
 const pat = ref(auth.state.githubPat)
+
+/**
+ * GitHub lets you pre-fill a fine-grained personal access token's
+ * description, target account, and permissions via query parameters on the
+ * token creation page. We use it so the exact scopes builder-shell needs
+ * (Administration, Contents, Pages — all read/write) are already selected;
+ * the user just has to review and click "Generate token", then paste it
+ * back here. If we already know the connected user's login, we target their
+ * account directly so they can create a fresh token without hunting for it.
+ */
+const tokenUrl = computed(() => {
+  const params = new URLSearchParams({
+    description: 'builder-shell',
+    contents: 'write',
+    administration: 'write',
+    pages: 'write',
+  })
+  if (auth.state.login) params.set('target_name', auth.state.login)
+  return `https://github.com/settings/personal-access-tokens/new?${params.toString()}`
+})
 
 async function connect() {
   auth.setGithubPat(pat.value)
@@ -20,6 +40,15 @@ async function connect() {
     <div v-if="auth.isReady.value" class="row connected">
       <img v-if="auth.state.avatarUrl" :src="auth.state.avatarUrl" alt="" />
       <span>Connected as <b>{{ auth.state.login }}</b></span>
+      <a
+        class="new-token"
+        :href="tokenUrl"
+        target="_blank"
+        rel="noreferrer"
+        title="Open GitHub with a new pre-filled token ready to generate"
+      >
+        New token →
+      </a>
       <button class="secondary" @click="auth.signOut()">Sign out</button>
     </div>
 
@@ -39,13 +68,12 @@ async function connect() {
         {{ auth.state.validating ? 'Connecting…' : 'Connect GitHub' }}
       </button>
       <p class="hint">
-        Token must have <b>All repositories</b> access with
-        <b>Administration</b>, <b>Contents</b>, and <b>Pages</b> set to
-        <b>Read and write</b> — or just use a classic token with the
+        Need a token? We can open GitHub with the required access
+        (<b>Administration</b>, <b>Contents</b>, and <b>Pages</b>, all
+        <b>Read and write</b>) already selected — just review and generate
+        it, then paste it above. Or use a classic token with the
         <code>repo</code> scope.
-        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">
-          Create →
-        </a>
+        <a :href="tokenUrl" target="_blank" rel="noreferrer">Create (pre-filled) →</a>
       </p>
       <p v-if="auth.state.error" class="error">{{ auth.state.error }}</p>
     </template>
@@ -72,6 +100,10 @@ async function connect() {
   width: 22px;
   height: 22px;
   border-radius: 50%;
+}
+.connected .new-token {
+  font-size: 0.85rem;
+  white-space: nowrap;
 }
 .connected button {
   margin-left: auto;
