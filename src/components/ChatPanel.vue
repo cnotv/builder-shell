@@ -1,29 +1,30 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { auth } from '../services/auth'
 import { ai, type Agent } from '../services/ai'
 import { GitHubClient } from '../services/github'
 import { publishPlugin, updatePlugin, type PublishStep } from '../services/publisher'
 import { buildUpdatePrompt } from '../services/pluginGen'
 import { slugify, type Plugin, type PluginManifest } from '../types/plugin'
+import { chatStore } from '../services/chatStore'
 
 const props = defineProps<{ editing: Plugin | null }>()
 const emit = defineEmits<{ published: [plugin: Plugin]; cancelEdit: [] }>()
 
 const github = new GitHubClient(() => auth.state.githubPat)
 
-const prompt = ref('')
-const busy = ref(false)
-const steps = ref<PublishStep[]>([])
-const error = ref<string | null>(null)
-const answer = ref<string | null>(null)
-const controller = ref<AbortController | null>(null)
+// Keyed persistent session: survives this component being closed/unmounted
+// (e.g. the user clicks elsewhere), so an in-flight build's progress, draft
+// text, and last result are never lost.
+const sessionKey = computed(() => (props.editing ? `edit:${props.editing.repo}` : 'create'))
+const session = computed(() => chatStore.get(sessionKey.value))
 
 /** Upsert a reported step by key, preserving order. */
 function report(step: PublishStep) {
-  const i = steps.value.findIndex((s) => s.key === step.key)
-  if (i >= 0) steps.value.splice(i, 1, step)
-  else steps.value.push(step)
+  const steps = session.value.steps
+  const i = steps.findIndex((s) => s.key === step.key)
+  if (i >= 0) steps.splice(i, 1, step)
+  else steps.push(step)
 }
 
 // Group agents by provider for optgroups in the dropdown.
@@ -43,28 +44,34 @@ function onSelect(e: Event) {
 }
 
 function stop() {
-  controller.value?.abort()
+  session.value.controller?.abort()
 }
 
 async function build() {
-  if (prompt.value.trim() === '' || busy.value) return
+  const s = session.value
+  if (s.prompt.trim() === '' || s.busy) return
   const selected = ai.clientForSelected()
   if (!selected) {
-    error.value = 'Connect an AI provider first.'
+    s.error = 'Connect an AI provider first.'
     return
   }
   const login = auth.state.login
   if (!login) {
-    error.value = 'Connect GitHub in the sidebar to publish your plugin.'
+    s.error = 'Connect GitHub in the sidebar to publish your plugin.'
     return
   }
 
-  busy.value = true
-  error.value = null
-  answer.value = null
-  steps.value = []
+  // Capture and clear the draft immediately so the user can start typing
+  // their next message while this one is still in flight.
+  const promptText = s.prompt
+  s.prompt = ''
+  s.activePrompt = promptText
+  s.busy = true
+  s.error = null
+  s.answer = null
+  s.steps = []
   const abort = new AbortController()
-  controller.value = abort
+  chatStore.setController(sessionKey.value, abort)
 
   try {
     if (props.editing) {
@@ -77,13 +84,12 @@ async function build() {
         entry: target.entry,
       }
       const updated = await selected.client.generatePlugin(
-        buildUpdatePrompt(manifest, current.text, prompt.value),
+        buildUpdatePrompt(manifest, current.text, promptText),
         selected.modelId,
         abort.signal,
       )
-      answer.value = updated.raw ?? null
+      s.answer = updated.raw ?? null
       const url = await updatePlugin(github, login, target.repo, target.entry, updated, report)
-      prompt.value = ''
       emit('published', {
         name: updated.manifest.name,
         description: updated.manifest.description,
@@ -94,22 +100,21 @@ async function build() {
       })
       emit('cancelEdit')
     } else {
-      const plugin = await selected.client.generatePlugin(prompt.value, selected.modelId, abort.signal)
-      answer.value = plugin.raw ?? null
+      const plugin = await selected.client.generatePlugin(promptText, selected.modelId, abort.signal)
+      s.answer = plugin.raw ?? null
       const repo = slugify(plugin.manifest.name) || `plugin-${Date.now()}`
       const url = await publishPlugin(github, login, repo, plugin, report)
-      prompt.value = ''
       emit('published', { ...plugin.manifest, repo, url })
     }
   } catch (err) {
     if (abort.signal.aborted) {
-      error.value = 'Stopped.'
+      s.error = 'Stopped.'
     } else {
-      error.value = err instanceof Error ? err.message : String(err)
+      s.error = err instanceof Error ? err.message : String(err)
     }
   } finally {
-    busy.value = false
-    controller.value = null
+    s.busy = false
+    chatStore.setController(sessionKey.value, null)
   }
 }
 </script>
@@ -119,9 +124,32 @@ async function build() {
     <h2 v-if="editing">Update: {{ editing.name }}</h2>
     <h2 v-else>Describe a plugin</h2>
 
+    <div v-if="session.busy || session.steps.length || session.activePrompt" class="ongoing">
+      <div class="ongoing-head">
+        <strong>{{ session.busy ? 'Working on:' : 'Last request:' }}</strong>
+        <button v-if="session.busy" class="stop" @click="stop">Stop</button>
+      </div>
+      <p v-if="session.activePrompt" class="ongoing-prompt">{{ session.activePrompt }}</p>
+
+      <ul v-if="session.steps.length" class="steps">
+        <li v-for="s in session.steps" :key="s.key" :class="s.status">
+          <span class="dot">{{ s.status === 'done' ? '✓' : s.status === 'error' ? '✕' : '…' }}</span>
+          <span class="lbl">{{ s.label }}</span>
+          <a v-if="s.url" :href="s.url" target="_blank" rel="noreferrer" title="View">↗</a>
+        </li>
+      </ul>
+
+      <div v-if="session.answer" class="answer">
+        <div class="answer-head">
+          <span>AI response</span>
+          <button class="link" @click="session.answer = null">Hide</button>
+        </div>
+        <pre>{{ session.answer }}</pre>
+      </div>
+    </div>
+
     <textarea
-      v-model="prompt"
-      :disabled="busy"
+      v-model="session.prompt"
       rows="4"
       :placeholder="
         editing
@@ -130,40 +158,28 @@ async function build() {
       "
     />
     <div class="row">
-      <select :value="selectedId" :disabled="busy || !ai.hasAgents.value" @change="onSelect">
+      <select :value="selectedId" :disabled="!ai.hasAgents.value" @change="onSelect">
         <template v-if="ai.hasAgents.value">
           <optgroup v-for="g in grouped" :key="g.providerLabel" :label="g.providerLabel">
             <option v-for="a in g.agents" :key="a.id" :value="a.id">{{ a.label }}</option>
           </optgroup>
         </template>
       </select>
-      <button v-if="busy" class="stop" @click="stop">Stop</button>
-      <button v-else :disabled="prompt.trim() === '' || !ai.hasAgents.value" @click="build">
-        {{ editing ? 'Update plugin' : 'Build & publish' }}
+      <button
+        :disabled="session.prompt.trim() === '' || !ai.hasAgents.value || session.busy"
+        @click="build"
+      >
+        {{ session.busy ? 'Working…' : editing ? 'Update plugin' : 'Build & publish' }}
       </button>
     </div>
 
-    <button v-if="editing && !busy" class="link" @click="$emit('cancelEdit')">Cancel edit</button>
+    <button v-if="editing && !session.busy" class="link" @click="$emit('cancelEdit')">
+      Cancel edit
+    </button>
 
     <p v-if="!ai.hasAgents.value" class="hint">Connect an AI provider above to enable building.</p>
 
-    <ul v-if="steps.length" class="steps">
-      <li v-for="s in steps" :key="s.key" :class="s.status">
-        <span class="dot">{{ s.status === 'done' ? '✓' : s.status === 'error' ? '✕' : '…' }}</span>
-        <span class="lbl">{{ s.label }}</span>
-        <a v-if="s.url" :href="s.url" target="_blank" rel="noreferrer" title="View">↗</a>
-      </li>
-    </ul>
-
-    <div v-if="answer" class="answer">
-      <div class="answer-head">
-        <span>AI response</span>
-        <button class="link" @click="answer = null">Hide</button>
-      </div>
-      <pre>{{ answer }}</pre>
-    </div>
-
-    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="session.error" class="error">{{ session.error }}</p>
   </section>
 </template>
 
@@ -219,6 +235,37 @@ button.link {
 .hint {
   color: #888;
 }
+.ongoing {
+  border: 1px solid #dce6f7;
+  border-radius: 8px;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: #f6f9ff;
+}
+.ongoing-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ongoing-head strong {
+  font-size: 0.85rem;
+  color: #1f6feb;
+}
+.ongoing-head .stop {
+  flex: none;
+  margin-left: auto;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+}
+.ongoing-prompt {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #444;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .steps {
   list-style: none;
   margin: 0;
@@ -228,6 +275,7 @@ button.link {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  background: #fff;
 }
 .steps li {
   display: flex;
