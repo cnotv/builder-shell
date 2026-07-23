@@ -47,10 +47,13 @@ export class GitHubClient {
   constructor(private readonly getToken: () => string) {}
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const token = this.getToken()
     const res = await fetch(`${API}${path}`, {
       ...init,
       headers: {
-        Authorization: `Bearer ${this.getToken()}`,
+        // Omit auth when there's no token: GitHub allows (rate-limited)
+        // unauthenticated reads, which powers guest browse mode.
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),

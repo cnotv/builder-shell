@@ -24,7 +24,10 @@ async function connect() {
     </div>
 
     <template v-else>
-      <p class="hint">Needed to publish a plugin and to list your plugins.</p>
+      <p class="hint">
+        Only needed to <b>publish or edit</b> plugins. Browsing and running
+        existing plugins works without connecting.
+      </p>
       <input
         v-model="pat"
         type="password"

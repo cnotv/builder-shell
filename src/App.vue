@@ -18,14 +18,16 @@ const loading = ref(false)
 const editing = ref<Plugin | null>(null)
 
 async function refresh() {
-  if (!auth.state.login) {
-    plugins.value = []
-    return
-  }
+  // Browse the connected user's plugins, or the configured owner's as a guest.
+  const owner = auth.state.login ?? SHELL.owner
+  const authed = auth.state.login !== null
   loading.value = true
   try {
     const gh = new GitHubClient(() => auth.state.githubPat)
-    plugins.value = await new Registry(gh, auth.state.login).list()
+    plugins.value = await new Registry(gh, owner, authed).list()
+  } catch (err) {
+    console.warn('Plugin discovery failed:', err)
+    plugins.value = []
   } finally {
     loading.value = false
   }
@@ -46,10 +48,8 @@ async function onPublished(p: Plugin) {
 }
 
 onMounted(async () => {
-  if (auth.state.githubPat) {
-    await auth.validate()
-    if (auth.isReady.value) await refresh()
-  }
+  if (auth.state.githubPat) await auth.validate()
+  await refresh() // works as a guest even without a token
 })
 </script>
 
