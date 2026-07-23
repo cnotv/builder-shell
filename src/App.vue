@@ -22,7 +22,8 @@ const tab = ref<'plugins' | 'settings'>('plugins')
 const showCreate = ref(false)
 const showSelfEdit = ref(false)
 
-// Editing an existing plugin from the gallery lives in the Plugins tab.
+// Editing an existing plugin from the gallery lives in the Settings tab too,
+// alongside the plugin loader.
 const editingPlugin = ref<Plugin | null>(null)
 const showEditPanel = ref(false)
 
@@ -119,6 +120,24 @@ onMounted(async () => {
         </div>
 
         <div class="panel">
+          <PluginGallery
+            :plugins="plugins"
+            :loading="loading"
+            @load="load"
+            @edit="edit"
+            @refresh="refresh"
+          />
+
+          <div v-if="showEditPanel" class="editor-area">
+            <ChatPanel
+              :editing="editingPlugin"
+              @published="onEditPublished"
+              @cancel-edit="cancelEditPlugin"
+            />
+          </div>
+        </div>
+
+        <div class="panel">
           <div class="toolbar">
             <button @click="toggleCreate">{{ showCreate ? 'Close' : 'New plugin' }}</button>
             <button
@@ -141,24 +160,6 @@ onMounted(async () => {
       </section>
 
       <section v-else class="tab">
-        <div class="panel">
-          <PluginGallery
-            :plugins="plugins"
-            :loading="loading"
-            @load="load"
-            @edit="edit"
-            @refresh="refresh"
-          />
-
-          <div v-if="showEditPanel" class="editor-area">
-            <ChatPanel
-              :editing="editingPlugin"
-              @published="onEditPublished"
-              @cancel-edit="cancelEditPlugin"
-            />
-          </div>
-        </div>
-
         <LoadedPlugins />
       </section>
     </main>
