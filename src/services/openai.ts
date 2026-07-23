@@ -14,6 +14,27 @@ export class OpenAiError extends Error {}
 export class OpenAiClient {
   constructor(private readonly getKey: () => string) {}
 
+  /** Raw completion for the self-edit flow. */
+  async completeText(prompt: string, system: string, model: string): Promise<string> {
+    const res = await fetch(API, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.getKey()}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: prompt },
+        ],
+      }),
+    })
+    if (!res.ok) throw new OpenAiError(`OpenAI ${res.status}: ${await res.text()}`)
+    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
+    return data.choices?.[0]?.message?.content ?? ''
+  }
+
   async generatePlugin(prompt: string, model: string): Promise<GeneratedPlugin> {
     const res = await fetch(API, {
       method: 'POST',

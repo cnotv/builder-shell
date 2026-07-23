@@ -124,6 +124,65 @@ export class GitHubClient {
     return this.getContent(owner, repo, path).then((r) => r.text)
   }
 
+  /** Head commit sha of a branch. */
+  async getRef(owner: string, repo: string, branch: string): Promise<string> {
+    const res = await this.request<{ object: { sha: string } }>(
+      `/repos/${owner}/${repo}/git/ref/heads/${branch}`,
+    )
+    return res.object.sha
+  }
+
+  /** Flat list of blobs/trees at a commit sha (recursive). */
+  async getTree(owner: string, repo: string, sha: string): Promise<{ path: string; type: string }[]> {
+    const res = await this.request<{ tree: { path: string; type: string }[] }>(
+      `/repos/${owner}/${repo}/git/trees/${sha}?recursive=1`,
+    )
+    return res.tree
+  }
+
+  /**
+   * Atomically commit a set of files to a branch via the Git Data API
+   * (blobs → tree → commit → ref). One commit, one CI run.
+   */
+  async commitFiles(
+    owner: string,
+    repo: string,
+    branch: string,
+    files: { path: string; content: string }[],
+    message: string,
+  ): Promise<{ sha: string; html_url: string }> {
+    const baseSha = await this.getRef(owner, repo, branch)
+    const baseCommit = await this.request<{ tree: { sha: string } }>(
+      `/repos/${owner}/${repo}/git/commits/${baseSha}`,
+    )
+
+    const tree: { path: string; mode: '100644'; type: 'blob'; sha: string }[] = []
+    for (const f of files) {
+      const blob = await this.request<{ sha: string }>(`/repos/${owner}/${repo}/git/blobs`, {
+        method: 'POST',
+        body: JSON.stringify({ content: toBase64(f.content), encoding: 'base64' }),
+      })
+      tree.push({ path: f.path, mode: '100644', type: 'blob', sha: blob.sha })
+    }
+
+    const newTree = await this.request<{ sha: string }>(`/repos/${owner}/${repo}/git/trees`, {
+      method: 'POST',
+      body: JSON.stringify({ base_tree: baseCommit.tree.sha, tree }),
+    })
+    const commit = await this.request<{ sha: string; html_url: string }>(
+      `/repos/${owner}/${repo}/git/commits`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ message, tree: newTree.sha, parents: [baseSha] }),
+      },
+    )
+    await this.request(`/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ sha: commit.sha }),
+    })
+    return { sha: commit.sha, html_url: commit.html_url }
+  }
+
   addTopics(owner: string, repo: string, topics: string[]): Promise<void> {
     return this.request(`/repos/${owner}/${repo}/topics`, {
       method: 'PUT',

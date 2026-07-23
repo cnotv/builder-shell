@@ -57,6 +57,16 @@ export class AnthropicClient {
       .join('')
   }
 
+  /** Raw completion for the self-edit flow. */
+  completeText(prompt: string, system: string, model: string): Promise<string> {
+    return this.complete({
+      model,
+      system,
+      maxTokens: 32000,
+      messages: [{ role: 'user', content: prompt }],
+    })
+  }
+
   /** Ask Claude to design a self-contained single-file plugin. */
   async generatePlugin(prompt: string, model: string): Promise<GeneratedPlugin> {
     const text = await this.complete({

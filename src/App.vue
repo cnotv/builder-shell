@@ -4,10 +4,12 @@ import { auth } from './services/auth'
 import { loaded } from './services/loaded'
 import { GitHubClient } from './services/github'
 import { Registry } from './services/registry'
+import { SHELL } from './config'
 import type { Plugin } from './types/plugin'
 import AiConnections from './components/AiConnections.vue'
 import GitHubConnect from './components/GitHubConnect.vue'
 import ChatPanel from './components/ChatPanel.vue'
+import SelfEdit from './components/SelfEdit.vue'
 import PluginGallery from './components/PluginGallery.vue'
 import LoadedPlugins from './components/LoadedPlugins.vue'
 
@@ -84,6 +86,10 @@ onMounted(async () => {
       <section class="work">
         <div class="panel">
           <ChatPanel :editing="editing" @published="onPublished" @cancel-edit="editing = null" />
+        </div>
+
+        <div v-if="auth.state.login === SHELL.owner" class="panel">
+          <SelfEdit />
         </div>
 
         <div class="panel grow">
