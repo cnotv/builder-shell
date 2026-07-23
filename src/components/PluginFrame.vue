@@ -13,7 +13,8 @@ const frame = ref<HTMLIFrameElement | null>(null)
 const height = ref(420)
 const collapsed = ref(false)
 const editing = ref(false)
-const status = ref<'loading' | 'ready' | 'error'>('loading')
+// Offline until the plugin's iframe actually talks to us (any postMessage).
+const status = ref<'offline' | 'online'>('offline')
 
 /** Cache-busted src: a new reloadKey forces the iframe to re-fetch. */
 const src = computed(() => {
@@ -21,18 +22,10 @@ const src = computed(() => {
   return `${props.plugin.url}${sep}r=${props.plugin.reloadKey}`
 })
 
-// Reset the status indicator whenever the iframe is about to (re)load.
+// A (re)load starts offline again until the plugin checks in.
 watch(src, () => {
-  status.value = 'loading'
+  status.value = 'offline'
 })
-
-function onFrameLoad() {
-  status.value = 'ready'
-}
-
-function onFrameError() {
-  status.value = 'error'
-}
 
 function reply(msg: unknown) {
   frame.value?.contentWindow?.postMessage(msg, '*')
@@ -44,6 +37,7 @@ function reply(msg: unknown) {
  */
 function onMessage(event: MessageEvent) {
   if (!frame.value || event.source !== frame.value.contentWindow) return
+  status.value = 'online'
   const d = event.data as { type?: string; height?: number; key?: string; value?: string }
   switch (d?.type) {
     case 'resize':
@@ -78,9 +72,11 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
         {{ collapsed ? '▸' : '▾' }}
       </button>
       <span class="title">{{ plugin.emoji }} {{ plugin.name }}</span>
-      <span class="status" :class="status">
-        {{ status === 'ready' ? 'Ready' : status === 'error' ? 'Error' : 'Loading…' }}
-      </span>
+      <span
+        class="status-dot"
+        :class="status"
+        :title="status === 'online' ? 'Online' : 'Offline'"
+      />
       <a class="open" :href="plugin.url" target="_blank" rel="noreferrer" title="Open in new tab">↗</a>
       <button class="act" :class="{ active: editing }" @click="editing = !editing">
         {{ editing ? 'Close editor' : 'Edit' }}
@@ -100,8 +96,6 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
       :style="{ height: height + 'px' }"
       sandbox="allow-scripts"
       title="plugin"
-      @load="onFrameLoad"
-      @error="onFrameError"
     />
   </div>
 </template>
@@ -129,26 +123,15 @@ onUnmounted(() => window.removeEventListener('message', onMessage))
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.status {
-  font-size: 0.75rem;
-  padding: 0.15rem 0.55rem;
-  border-radius: 999px;
-  background: #eee;
-  color: #666;
-  white-space: nowrap;
+.status-dot {
   flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #c0392b;
 }
-.status.loading {
-  background: #eef4ff;
-  color: #1f6feb;
-}
-.status.ready {
-  background: #e8f5e9;
-  color: #2e7d32;
-}
-.status.error {
-  background: #fdecea;
-  color: #c0392b;
+.status-dot.online {
+  background: #2e7d32;
 }
 .open {
   text-decoration: none;

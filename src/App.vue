@@ -15,11 +15,16 @@ import LoadedPlugins from './components/LoadedPlugins.vue'
 
 const plugins = ref<Plugin[]>([])
 const loading = ref(false)
-const editing = ref<Plugin | null>(null)
 
 const tab = ref<'plugins' | 'settings'>('plugins')
+
+// "New plugin" and "Edit app" live in the Settings tab.
 const showCreate = ref(false)
 const showSelfEdit = ref(false)
+
+// Editing an existing plugin from the gallery lives in the Plugins tab.
+const editingPlugin = ref<Plugin | null>(null)
+const showEditPanel = ref(false)
 
 async function refresh() {
   // Browse the connected user's plugins, or the configured owner's as a guest.
@@ -38,9 +43,19 @@ async function refresh() {
 }
 
 function edit(p: Plugin) {
-  editing.value = p
-  showSelfEdit.value = false
-  showCreate.value = true
+  editingPlugin.value = p
+  showEditPanel.value = true
+}
+
+function cancelEditPlugin() {
+  showEditPanel.value = false
+  editingPlugin.value = null
+}
+
+async function onEditPublished(p: Plugin) {
+  cancelEditPlugin()
+  loaded.loadPlugin(p)
+  await refresh()
 }
 
 function load(p: Plugin) {
@@ -50,11 +65,9 @@ function load(p: Plugin) {
 function toggleCreate() {
   if (showCreate.value) {
     showCreate.value = false
-    editing.value = null
   } else {
-    editing.value = null
-    showSelfEdit.value = false
     showCreate.value = true
+    showSelfEdit.value = false
   }
 }
 
@@ -65,7 +78,6 @@ function toggleSelfEdit() {
 
 function cancelCreate() {
   showCreate.value = false
-  editing.value = null
 }
 
 async function onPublished(p: Plugin) {
@@ -105,9 +117,7 @@ onMounted(async () => {
           <hr />
           <GitHubConnect @connected="refresh" />
         </div>
-      </section>
 
-      <section v-else class="tab">
         <div class="panel">
           <div class="toolbar">
             <button @click="toggleCreate">{{ showCreate ? 'Close' : 'New plugin' }}</button>
@@ -121,14 +131,16 @@ onMounted(async () => {
           </div>
 
           <div v-if="showCreate" class="editor-area">
-            <ChatPanel :editing="editing" @published="onPublished" @cancel-edit="cancelCreate" />
+            <ChatPanel :editing="null" @published="onPublished" @cancel-edit="cancelCreate" />
           </div>
 
           <div v-if="showSelfEdit" class="editor-area">
             <SelfEdit />
           </div>
         </div>
+      </section>
 
+      <section v-else class="tab">
         <div class="panel">
           <PluginGallery
             :plugins="plugins"
@@ -137,6 +149,14 @@ onMounted(async () => {
             @edit="edit"
             @refresh="refresh"
           />
+
+          <div v-if="showEditPanel" class="editor-area">
+            <ChatPanel
+              :editing="editingPlugin"
+              @published="onEditPublished"
+              @cancel-edit="cancelEditPlugin"
+            />
+          </div>
         </div>
 
         <LoadedPlugins />
